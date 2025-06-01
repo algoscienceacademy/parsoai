@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import { useAdvancedVoice } from './hooks/useAdvancedVoice';
 import { useEnhancedScreenShare } from './hooks/useEnhancedScreenShare';
+import { VoiceSettingsPanel } from './components/VoiceSettingsPanel';
 
 type ConversationFlow = 'listening' | 'processing' | 'speaking' | 'idle';
 
@@ -21,6 +22,14 @@ interface Message {
   isVoice?: boolean;
   isInterim?: boolean;
   emotion?: 'excited' | 'calm' | 'professional';
+}
+
+interface VoiceSettings {
+  country: 'US' | 'UK' | 'AU' | 'CA' | 'IN' | 'BD';
+  gender: 'male' | 'female';
+  tone: 'professional' | 'friendly' | 'casual' | 'excited' | 'calm';
+  speed: number;
+  pitch: number;
 }
 
 export default function ParsoAI() {
@@ -41,7 +50,15 @@ export default function ParsoAI() {
   const [conversationFlow, setConversationFlow] = useState<ConversationFlow>('idle');
   const [connectionStatus, setConnectionStatus] = useState<'online' | 'offline' | 'connecting'>('online');
   const [waitingForUser, setWaitingForUser] = useState(false);
-  
+  const [showVoiceSettings, setShowVoiceSettings] = useState(false);
+  const [voiceSettings, setVoiceSettings] = useState<VoiceSettings>({
+    country: 'US',
+    gender: 'female',
+    tone: 'professional',
+    speed: 1.0,
+    pitch: 1.0
+  });
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const currentUtteranceRef = useRef<string>('');
 
@@ -55,7 +72,9 @@ export default function ParsoAI() {
     voiceLevel,
     isSupported,
     speak,
-    toggleConversation
+    toggleConversation,
+    updateVoiceSettings,
+    getVoicePreview
   } = useAdvancedVoice({
     language,
     onTranscript: (text, isFinal) => {
@@ -71,7 +90,8 @@ export default function ParsoAI() {
       }
     },
     onConversationFlow: setConversationFlow,
-    enableContinuousMode: true
+    enableContinuousMode: true,
+    voiceSettings
   });
 
   // Enhanced screen sharing hook
@@ -83,10 +103,13 @@ export default function ParsoAI() {
     screenMetrics,
     detectedCodes,
     activeCode,
+    isVideoReady,
+    streamQuality,
     startScreenShare,
     stopScreenShare,
     selectCode,
     analyzeCodeManually,
+    setStreamQualityLevel,
     videoRef,
     canvasRef,
     getCurrentScreenData,
@@ -242,6 +265,16 @@ export default function ParsoAI() {
     selectCode(code);
   }, [selectCode]);
 
+  const handleVoiceSettingsChange = useCallback((newSettings: Partial<VoiceSettings>) => {
+    const updatedSettings = { ...voiceSettings, ...newSettings };
+    setVoiceSettings(updatedSettings);
+    updateVoiceSettings(updatedSettings);
+  }, [voiceSettings, updateVoiceSettings]);
+
+  const handleVoicePreview = useCallback(() => {
+    getVoicePreview();
+  }, [getVoicePreview]);
+
   return (
     <div className="min-h-screen relative">
       {/* Neural Network Background */}
@@ -262,7 +295,7 @@ export default function ParsoAI() {
       </div>
 
       <div className="max-w-8xl mx-auto relative z-10 p-6">
-        {/* Advanced Header */}
+        {/* Enhanced Header with voice settings toggle */}
         <motion.div 
           initial={{ y: -50, opacity: 0 }}
           animate={{ y: 0, opacity: 1 }}
@@ -273,6 +306,7 @@ export default function ParsoAI() {
           
           <div className="flex items-center justify-between relative z-10">
             <div className="flex items-center space-x-6">
+              {/* AI Avatar and Status */}
               <motion.div 
                 className="relative"
                 animate={conversationActive ? { 
@@ -329,11 +363,11 @@ export default function ParsoAI() {
                     <span className="text-sm text-orange-400 font-medium capitalize">{conversationFlow}</span>
                   </div>
 
-                  {isSharing && (
+                  {isSharing && isVideoReady && (
                     <div className="flex items-center space-x-2">
                       <Eye className="w-4 h-4 text-blue-400" />
                       <span className="text-sm text-blue-400 font-medium">
-                        Full screen visible to AI
+                        Live screen visible to AI ({streamQuality})
                       </span>
                     </div>
                   )}
@@ -342,6 +376,19 @@ export default function ParsoAI() {
             </div>
             
             <div className="flex items-center space-x-4">
+              {/* Voice Settings Toggle */}
+              <motion.button
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+                onClick={() => setShowVoiceSettings(!showVoiceSettings)}
+                className={`btn-primary rounded-2xl p-4 transition-all duration-300 ${
+                  showVoiceSettings ? 'glass-orange' : 'glass'
+                }`}
+                title="Voice Settings"
+              >
+                <Settings className={`w-6 h-6 ${showVoiceSettings ? 'text-orange-300' : 'text-orange-500'}`} />
+              </motion.button>
+
               {/* Conversation Toggle */}
               <motion.button
                 whileHover={{ scale: 1.05 }}
@@ -376,7 +423,7 @@ export default function ParsoAI() {
                 </span>
               </motion.button>
 
-              {/* Screen Share Toggle */}
+              {/* Enhanced Screen Share Toggle with quality indicator */}
               <motion.button
                 whileHover={{ scale: 1.05 }}
                 whileTap={{ scale: 0.95 }}
@@ -396,6 +443,11 @@ export default function ParsoAI() {
                     animate={{ scale: [1, 1.3, 1] }}
                     transition={{ duration: 1, repeat: Infinity }}
                   />
+                )}
+                {isSharing && (
+                  <div className="absolute -bottom-1 -right-1 text-xs bg-blue-500 text-white px-1 rounded">
+                    {streamQuality}
+                  </div>
                 )}
               </motion.button>
 
@@ -617,7 +669,17 @@ export default function ParsoAI() {
 
           {/* Enhanced Side Panel */}
           <div className="xl:col-span-2 space-y-8">
-            {/* Screen Share Preview */}
+            {/* Voice Settings Panel */}
+            {showVoiceSettings && (
+              <VoiceSettingsPanel
+                settings={voiceSettings}
+                onSettingsChange={handleVoiceSettingsChange}
+                onPreview={handleVoicePreview}
+                language={language}
+              />
+            )}
+
+            {/* Enhanced Screen Share Preview */}
             {isSharing && (
               <motion.div
                 initial={{ opacity: 0, scale: 0.9 }}
@@ -628,6 +690,11 @@ export default function ParsoAI() {
                   <div className="flex items-center">
                     <Monitor className="w-6 h-6 mr-3 text-orange-400" />
                     Live Screen Share
+                    {isVideoReady && (
+                      <span className="ml-2 text-sm bg-green-500/20 text-green-400 px-2 py-1 rounded-full">
+                        ● LIVE
+                      </span>
+                    )}
                   </div>
                   {isAnalyzing && (
                     <div className="flex items-center space-x-2">
@@ -644,12 +711,22 @@ export default function ParsoAI() {
                 </h3>
                 
                 <div className="screen-preview mb-4">
+                  {!isVideoReady && (
+                    <div className="w-full h-48 bg-gray-800 rounded-xl flex items-center justify-center border border-orange-500/30">
+                      <div className="text-center">
+                        <div className="animate-spin w-8 h-8 border-2 border-orange-400 border-t-transparent rounded-full mx-auto mb-3"></div>
+                        <p className="text-gray-400">Loading screen share...</p>
+                      </div>
+                    </div>
+                  )}
                   <video
                     ref={videoRef}
                     autoPlay
                     muted
                     playsInline
-                    className="w-full rounded-xl bg-black border border-orange-500/30"
+                    className={`w-full rounded-xl bg-black border border-orange-500/30 transition-opacity ${
+                      isVideoReady ? 'opacity-100' : 'opacity-0'
+                    }`}
                     style={{ 
                       maxHeight: '300px', 
                       width: '100%',
@@ -658,10 +735,36 @@ export default function ParsoAI() {
                     }}
                   />
                   <div className="mt-2 text-xs text-gray-400 text-center">
-                    Resolution: {screenMetrics.resolution} | FPS: {screenMetrics.fps} | Bandwidth: {screenMetrics.bandwidth}
+                    {screenMetrics.resolution} • {screenMetrics.fps} FPS • {screenMetrics.bandwidth}
                   </div>
                 </div>
                 
+                {/* Quality Controls */}
+                <div className="mb-4">
+                  <label className="text-sm font-medium text-orange-300 mb-2 block">
+                    Stream Quality
+                  </label>
+                  <div className="grid grid-cols-3 gap-2">
+                    {(['HD', 'FHD', '4K'] as const).map((quality) => (
+                      <motion.button
+                        key={quality}
+                        whileHover={{ scale: 1.02 }}
+                        whileTap={{ scale: 0.98 }}
+                        onClick={() => setStreamQualityLevel(quality)}
+                        disabled={isSharing}
+                        className={`p-2 rounded-lg text-xs transition-all ${
+                          streamQuality === quality
+                            ? 'glass-orange text-orange-200'
+                            : 'glass text-gray-300 hover:text-orange-300'
+                        } disabled:opacity-50`}
+                      >
+                        {quality}
+                      </motion.button>
+                    ))}
+                  </div>
+                </div>
+                
+                {/* Analysis Progress */}
                 {analysisProgress > 0 && (
                   <div className="mb-4">
                     <div className="glass rounded-lg p-2">
@@ -685,10 +788,10 @@ export default function ParsoAI() {
                   whileTap={{ scale: 0.98 }}
                   onClick={analyzeCodeManually}
                   className="w-full mt-3 btn-primary rounded-xl p-3 text-orange-300"
-                  disabled={isAnalyzing}
+                  disabled={isAnalyzing || !isVideoReady}
                 >
                   <Eye className="w-4 h-4 mr-2 inline" />
-                  {isAnalyzing ? 'Analyzing...' : 'Analyze Screen Now'}
+                  {isAnalyzing ? 'Analyzing...' : !isVideoReady ? 'Starting...' : 'Analyze Screen Now'}
                 </motion.button>
               </motion.div>
             )}

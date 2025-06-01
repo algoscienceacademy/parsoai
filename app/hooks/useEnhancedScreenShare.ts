@@ -35,6 +35,8 @@ export const useEnhancedScreenShare = () => {
     fps: 0,
     bandwidth: '0MB/s'
   });
+  const [isVideoReady, setIsVideoReady] = useState(false);
+  const [streamQuality, setStreamQuality] = useState<'HD' | 'FHD' | '4K'>('HD');
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -112,23 +114,33 @@ export default UserProfile;`,
     }
   ];
 
+  // Enhanced screen capture with better quality
   const captureFullScreen = useCallback(async (): Promise<string> => {
-    if (!videoRef.current || !canvasRef.current) return '';
+    if (!videoRef.current || !canvasRef.current || !isVideoReady) return '';
 
     const video = videoRef.current;
     const canvas = canvasRef.current;
-    const ctx = canvas.getContext('2d');
+    const ctx = canvas.getContext('2d', { 
+      alpha: false,
+      desynchronized: true,
+      preserveDrawingBuffer: true
+    }) as CanvasRenderingContext2D;
 
     if (!ctx || video.videoWidth === 0 || video.videoHeight === 0) return '';
 
     try {
+      // Set canvas to match video dimensions exactly
       canvas.width = video.videoWidth;
       canvas.height = video.videoHeight;
 
+      // Clear and draw with better quality settings
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-      const imageData = canvas.toDataURL('image/png', 1.0);
+      // Convert to high-quality image
+      const imageData = canvas.toDataURL('image/jpeg', 0.95);
       setCurrentScreenshot(imageData);
       
       return imageData;
@@ -136,7 +148,7 @@ export default UserProfile;`,
       console.error('Error capturing screen:', error);
       return '';
     }
-  }, []);
+  }, [isVideoReady]);
 
   const analyzeScreenContent = useCallback(async () => {
     if (!isSharing || !realTimeAnalysis) return;
@@ -215,19 +227,46 @@ export default UserProfile;`,
   const startScreenShare = useCallback(async () => {
     try {
       setError('');
+      setIsVideoReady(false);
       
       if (!navigator.mediaDevices?.getDisplayMedia) {
         throw new Error('Screen sharing not supported in this browser. Please use Chrome, Firefox, or Edge.');
       }
 
-      const mediaStream = await navigator.mediaDevices.getDisplayMedia({
-        video: {
-          width: { ideal: 1920, max: 3840 },
-          height: { ideal: 1080, max: 2160 },
+      // Enhanced display media constraints for better quality
+      let videoConstraints: MediaTrackConstraints = {
+        width: { ideal: 1920, max: 3840 },
+        height: { ideal: 1080, max: 2160 },
+        frameRate: { ideal: 30, max: 60 }
+      };
+
+      // Adjust quality based on setting
+      if (streamQuality === 'FHD') {
+        videoConstraints = {
+          width: { ideal: 1920, max: 1920 },
+          height: { ideal: 1080, max: 1080 },
           frameRate: { ideal: 30, max: 60 }
-        },
-        audio: true
-      });
+        };
+      } else if (streamQuality === '4K') {
+        videoConstraints = {
+          width: { ideal: 3840, max: 3840 },
+          height: { ideal: 2160, max: 2160 },
+          frameRate: { ideal: 30, max: 60 }
+        };
+      }
+
+      const constraints: DisplayMediaStreamOptions = {
+        video: videoConstraints,
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+          sampleRate: 48000,
+          channelCount: 2
+        }
+      };
+
+      const mediaStream = await navigator.mediaDevices.getDisplayMedia(constraints);
 
       setStream(mediaStream);
       setIsSharing(true);
@@ -238,63 +277,91 @@ export default UserProfile;`,
       if (videoRef.current) {
         videoRef.current.srcObject = mediaStream;
         
-        const handleLoadedMetadata = () => {
+        // Enhanced video setup
+        videoRef.current.onloadedmetadata = () => {
           if (videoRef.current) {
+            // Set video properties for better display
+            videoRef.current.setAttribute('playsinline', 'true');
+            videoRef.current.setAttribute('webkit-playsinline', 'true');
+            
             videoRef.current.play().then(() => {
-              // Start metrics monitoring
-              const metricsInterval = setInterval(updateScreenMetrics, 1000);
+              setIsVideoReady(true);
+              console.log('Video dimensions:', videoRef.current?.videoWidth, 'x', videoRef.current?.videoHeight);
               
-              // Start analysis after delay
+              // Start metrics monitoring with more frequent updates
+              const metricsInterval = setInterval(updateScreenMetrics, 500);
+              
+              // Start analysis after video is ready
               setTimeout(() => {
                 analyzeScreenContent();
-                intervalRef.current = setInterval(analyzeScreenContent, 8000);
-              }, 2000);
+                intervalRef.current = setInterval(analyzeScreenContent, 6000);
+              }, 1500);
 
-              // Cleanup function
+              // Enhanced cleanup function
               const cleanup = () => {
                 clearInterval(metricsInterval);
                 if (intervalRef.current) {
                   clearInterval(intervalRef.current);
                   intervalRef.current = null;
                 }
+                setIsVideoReady(false);
               };
 
-              mediaStream.getVideoTracks()[0].onended = () => {
-                cleanup();
-                setIsSharing(false);
-                setStream(null);
-                setDetectedCodes([]);
-                setActiveCode(null);
-                setIsAnalyzing(false);
-                setCurrentScreenshot('');
-                setAnalysisProgress(0);
-              };
-            }).catch(console.error);
+              // Handle stream end
+              mediaStream.getVideoTracks().forEach(track => {
+                track.onended = () => {
+                  cleanup();
+                  setIsSharing(false);
+                  setStream(null);
+                  setDetectedCodes([]);
+                  setActiveCode(null);
+                  setIsAnalyzing(false);
+                  setCurrentScreenshot('');
+                  setAnalysisProgress(0);
+                };
+              });
+            }).catch((playError) => {
+              console.error('Video play error:', playError);
+              setError('Failed to start video playback. Please try again.');
+            });
           }
         };
+        
+        videoRef.current.onloadstart = () => {
+          console.log('Video loading started...');
+        };
 
-        videoRef.current.onloadedmetadata = handleLoadedMetadata;
+        videoRef.current.oncanplay = () => {
+          console.log('Video can start playing...');
+        };
         
         videoRef.current.onerror = (error) => {
           console.error('Video error:', error);
-          setError('Error loading video stream');
+          setError('Error loading video stream. Please try sharing again.');
+          setIsVideoReady(false);
         };
+
+        // Force video to load
+        videoRef.current.load();
       }
 
     } catch (error) {
       console.error('Screen share error:', error);
+      setIsVideoReady(false);
       
       if (error instanceof Error) {
         if (error.message.includes('Permission denied') || error.name === 'NotAllowedError') {
           setError('Screen sharing permission denied. Please allow screen sharing and try again.');
         } else if (error.name === 'AbortError') {
           setError('Screen sharing was cancelled.');
+        } else if (error.name === 'NotSupportedError') {
+          setError('Screen sharing is not supported on this device or browser.');
         } else {
-          setError('Failed to start screen sharing. Please try again.');
+          setError('Failed to start screen sharing. Please check your browser settings and try again.');
         }
       }
     }
-  }, [analyzeScreenContent, updateScreenMetrics]);
+  }, [analyzeScreenContent, updateScreenMetrics, streamQuality]);
 
   const stopScreenShare = useCallback(() => {
     if (stream) {
@@ -327,16 +394,22 @@ export default UserProfile;`,
     }
   }, [isSharing, analyzeScreenContent]);
 
+  const setStreamQualityLevel = useCallback((quality: 'HD' | 'FHD' | '4K') => {
+    setStreamQuality(quality);
+  }, []);
+
   const getCurrentScreenData = useCallback(() => {
     return {
       isSharing,
+      isVideoReady,
       screenshot: currentScreenshot,
       activeCode,
       detectedCodes,
       screenMetrics,
-      analysisInProgress: isAnalyzing
+      analysisInProgress: isAnalyzing,
+      streamQuality
     };
-  }, [isSharing, currentScreenshot, activeCode, detectedCodes, screenMetrics, isAnalyzing]);
+  }, [isSharing, isVideoReady, currentScreenshot, activeCode, detectedCodes, screenMetrics, isAnalyzing, streamQuality]);
 
   useEffect(() => {
     return () => {
@@ -359,10 +432,13 @@ export default UserProfile;`,
     activeCode,
     currentScreenshot,
     realTimeAnalysis,
+    isVideoReady,
+    streamQuality,
     startScreenShare,
     stopScreenShare,
     selectCode,
     analyzeCodeManually,
+    setStreamQualityLevel,
     getCurrentScreenData,
     captureFullScreen,
     videoRef,
