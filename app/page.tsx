@@ -90,7 +90,7 @@ export default function ParsoAI() {
     videoRef,
     canvasRef,
     getCurrentScreenData,
-    captureScreenshot,
+    captureFullScreen,
     currentScreenshot
   } = useEnhancedScreenShare();
 
@@ -116,6 +116,11 @@ export default function ParsoAI() {
   }, []);
 
   const handleVoiceInput = useCallback(async (text: string) => {
+    // Don't process if AI is speaking
+    if (isSpeaking) {
+      return;
+    }
+
     const userMessage: Message = {
       id: Date.now().toString(),
       text,
@@ -126,14 +131,18 @@ export default function ParsoAI() {
 
     setMessages(prev => [...prev, userMessage]);
     await sendToAI(text, true);
-  }, []);
+  }, [isSpeaking]);
 
   const sendToAI = useCallback(async (text: string, isVoice = false) => {
+    // Don't send if AI is currently speaking
+    if (isSpeaking) {
+      return;
+    }
+
     setIsLoading(true);
     setConnectionStatus('connecting');
 
     try {
-      // Get current screen data if sharing
       const screenData = isSharing ? getCurrentScreenData() : null;
       
       const contextData = {
@@ -152,7 +161,8 @@ export default function ParsoAI() {
         conversationContext: {
           isUserSpeaking,
           voiceLevel,
-          waitingForUser
+          waitingForUser,
+          conversationActive
         }
       };
 
@@ -177,8 +187,8 @@ export default function ParsoAI() {
 
         setMessages(prev => [...prev, aiMessage]);
 
-        // Only speak if in conversation mode and user has finished speaking
-        if ((isVoice || conversationActive) && !isUserSpeaking && !waitingForUser) {
+        // Speak if in voice mode and not already speaking
+        if ((isVoice || conversationActive) && !isSpeaking) {
           currentUtteranceRef.current = data.response;
           await speak(data.response, { 
             priority: 'high', 
@@ -202,13 +212,13 @@ export default function ParsoAI() {
 
       setMessages(prev => [...prev, errorMessage]);
 
-      if (conversationActive) {
+      if (conversationActive && !isSpeaking) {
         await speak(errorMessage.text, { emotion: 'calm' });
       }
     } finally {
       setIsLoading(false);
     }
-  }, [language, conversationFlow, isSharing, getCurrentScreenData, conversationActive, speak, isUserSpeaking, waitingForUser, voiceLevel]);
+  }, [language, conversationFlow, isSharing, getCurrentScreenData, conversationActive, speak, isUserSpeaking, waitingForUser, voiceLevel, isSpeaking]);
 
   const sendMessage = useCallback(async () => {
     if (!inputText.trim()) return;
@@ -322,7 +332,9 @@ export default function ParsoAI() {
                   {isSharing && (
                     <div className="flex items-center space-x-2">
                       <Eye className="w-4 h-4 text-blue-400" />
-                      <span className="text-sm text-blue-400 font-medium">{screenMetrics.resolution} @ {screenMetrics.fps}fps</span>
+                      <span className="text-sm text-blue-400 font-medium">
+                        Full screen visible to AI
+                      </span>
                     </div>
                   )}
                 </div>
@@ -615,7 +627,7 @@ export default function ParsoAI() {
                 <h3 className="text-xl font-semibold text-white mb-6 flex items-center justify-between">
                   <div className="flex items-center">
                     <Monitor className="w-6 h-6 mr-3 text-orange-400" />
-                    Live Screen Analysis
+                    Live Screen Share
                   </div>
                   {isAnalyzing && (
                     <div className="flex items-center space-x-2">
@@ -636,9 +648,18 @@ export default function ParsoAI() {
                     ref={videoRef}
                     autoPlay
                     muted
-                    className="w-full rounded-xl bg-black"
-                    style={{ maxHeight: '300px' }}
+                    playsInline
+                    className="w-full rounded-xl bg-black border border-orange-500/30"
+                    style={{ 
+                      maxHeight: '300px', 
+                      width: '100%',
+                      objectFit: 'contain',
+                      backgroundColor: '#000'
+                    }}
                   />
+                  <div className="mt-2 text-xs text-gray-400 text-center">
+                    Resolution: {screenMetrics.resolution} | FPS: {screenMetrics.fps} | Bandwidth: {screenMetrics.bandwidth}
+                  </div>
                 </div>
                 
                 {analysisProgress > 0 && (
@@ -651,10 +672,24 @@ export default function ParsoAI() {
                         transition={{ duration: 0.3 }}
                       />
                     </div>
+                    <div className="text-xs text-center text-gray-400 mt-1">
+                      AI is analyzing your screen content...
+                    </div>
                   </div>
                 )}
                 
                 <canvas ref={canvasRef} className="hidden" />
+                
+                <motion.button
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
+                  onClick={analyzeCodeManually}
+                  className="w-full mt-3 btn-primary rounded-xl p-3 text-orange-300"
+                  disabled={isAnalyzing}
+                >
+                  <Eye className="w-4 h-4 mr-2 inline" />
+                  {isAnalyzing ? 'Analyzing...' : 'Analyze Screen Now'}
+                </motion.button>
               </motion.div>
             )}
 
@@ -725,7 +760,7 @@ export default function ParsoAI() {
               </motion.div>
             )}
 
-            {/* Voice Conversation Status */}
+            {/* Enhanced Voice Conversation Status */}
             <motion.div
               initial={{ opacity: 0, scale: 0.9 }}
               animate={{ opacity: 1, scale: 1 }}
@@ -742,31 +777,34 @@ export default function ParsoAI() {
                     label: 'Voice Conversation', 
                     active: conversationActive, 
                     icon: MessageSquare,
-                    description: 'Continuous voice interaction'
+                    description: conversationActive ? 
+                      (isSpeaking ? 'AI is speaking...' : 
+                       isListening ? 'Listening for your voice...' : 
+                       'Ready to listen') : 'Voice conversation disabled'
                   },
                   { 
                     label: 'Screen Analysis', 
                     active: isSharing, 
                     icon: Monitor,
-                    description: 'Real-time code detection'
+                    description: isSharing ? 'AI can see your screen' : 'Screen sharing disabled'
                   },
                   { 
                     label: 'Voice Recognition', 
                     active: isListening, 
                     icon: Mic,
-                    description: 'Listening for speech input'
+                    description: isListening ? 'Actively listening...' : 'Not listening'
                   },
                   { 
                     label: 'AI Speaking', 
                     active: isSpeaking, 
                     icon: Volume2,
-                    description: 'Generating voice response'
+                    description: isSpeaking ? 'AI is responding...' : 'AI is silent'
                   },
                   { 
                     label: 'Code Processing', 
                     active: isAnalyzing, 
                     icon: Cpu,
-                    description: 'Analyzing detected code'
+                    description: isAnalyzing ? 'Analyzing screen content...' : 'No analysis running'
                   }
                 ].map((item, index) => (
                   <motion.div

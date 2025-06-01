@@ -1,15 +1,23 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 
 interface DetectedCode {
+  id: string;
   content: string;
   language: string;
   confidence: number;
-  lineNumbers: number[];
   analysis: {
     complexity: 'low' | 'medium' | 'high';
     issues: string[];
     suggestions: string[];
   };
+  timestamp: Date;
+  screenshot?: string;
+}
+
+interface ScreenMetrics {
+  resolution: string;
+  fps: number;
+  bandwidth: string;
 }
 
 export const useEnhancedScreenShare = () => {
@@ -20,234 +28,91 @@ export const useEnhancedScreenShare = () => {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisProgress, setAnalysisProgress] = useState(0);
   const [error, setError] = useState<string>('');
-  const [screenMetrics, setScreenMetrics] = useState({ fps: 0, resolution: '' });
   const [currentScreenshot, setCurrentScreenshot] = useState<string>('');
   const [realTimeAnalysis, setRealTimeAnalysis] = useState(true);
-  
+  const [screenMetrics, setScreenMetrics] = useState<ScreenMetrics>({
+    resolution: '0x0',
+    fps: 0,
+    bandwidth: '0MB/s'
+  });
+
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
-  const fpsCounterRef = useRef<number>(0);
+  const frameCountRef = useRef(0);
+  const lastTimeRef = useRef(0);
 
-  // Enhanced code samples with analysis
-  const mockCodeDatabase = [
+  const mockCodeDatabase: DetectedCode[] = [
     {
-      content: `import React, { useState, useEffect } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+      id: '1',
+      content: `function calculateTotal(items) {
+  return items.reduce((sum, item) => sum + item.price * item.quantity, 0);
+}
 
-const ChatInterface = ({ messages, onSendMessage }) => {
-  const [inputText, setInputText] = useState('');
-  const [isTyping, setIsTyping] = useState(false);
+const cart = [
+  { price: 10.99, quantity: 2 },
+  { price: 5.50, quantity: 1 }
+];
+console.log('Total:', calculateTotal(cart));`,
+      language: 'javascript',
+      confidence: 0.95,
+      analysis: {
+        complexity: 'low',
+        issues: ['No input validation'],
+        suggestions: ['Add type checking', 'Handle edge cases']
+      },
+      timestamp: new Date()
+    },
+    {
+      id: '2',
+      content: `import React, { useState, useEffect } from 'react';
+
+const UserProfile = ({ userId }) => {
+  const [user, setUser] = useState(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const timer = setTimeout(() => setIsTyping(false), 1000);
-    return () => clearTimeout(timer);
-  }, [inputText]);
+    const fetchUser = async () => {
+      try {
+        const response = await fetch(\`/api/users/\${userId}\`);
+        const userData = await response.json();
+        setUser(userData);
+      } catch (error) {
+        console.error('Failed to fetch user:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
 
-  const handleSubmit = (e) => {
-    e.preventDefault();
-    if (inputText.trim()) {
-      onSendMessage(inputText);
-      setInputText('');
+    if (userId) {
+      fetchUser();
     }
-  };
+  }, [userId]);
+
+  if (loading) return <div>Loading...</div>;
+  if (!user) return <div>User not found</div>;
 
   return (
-    <div className="chat-container">
-      <AnimatePresence>
-        {messages.map((message) => (
-          <motion.div
-            key={message.id}
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -20 }}
-            className="message"
-          >
-            {message.text}
-          </motion.div>
-        ))}
-      </AnimatePresence>
-      <form onSubmit={handleSubmit}>
-        <input
-          value={inputText}
-          onChange={(e) => setInputText(e.target.value)}
-          placeholder="Type your message..."
-        />
-        <button type="submit">Send</button>
-      </form>
+    <div className="user-profile">
+      <h1>{user.name}</h1>
+      <p>{user.email}</p>
     </div>
   );
 };
 
-export default ChatInterface;`,
+export default UserProfile;`,
       language: 'typescript',
-      confidence: 0.95,
-      lineNumbers: [1, 2, 4, 5, 6, 8, 9, 10, 11, 13, 14, 15, 16, 17, 18, 19, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50],
+      confidence: 0.89,
       analysis: {
-        complexity: 'medium' as const,
-        issues: ['Missing prop types validation', 'No error handling for onSendMessage'],
-        suggestions: ['Add TypeScript interfaces', 'Implement error boundaries', 'Add loading states']
-      }
-    },
-    {
-      content: `def analyze_sentiment(text):
-    """
-    Analyze sentiment of given text using natural language processing
-    """
-    import nltk
-    from textblob import TextBlob
-    
-    # Download required NLTK data if not present
-    try:
-        nltk.data.find('tokenizers/punkt')
-    except LookupError:
-        nltk.download('punkt')
-    
-    # Clean and preprocess text
-    cleaned_text = text.strip().lower()
-    
-    # Create TextBlob object
-    blob = TextBlob(cleaned_text)
-    
-    # Get polarity and subjectivity
-    polarity = blob.sentiment.polarity
-    subjectivity = blob.sentiment.subjectivity
-    
-    # Determine sentiment category
-    if polarity > 0.1:
-        sentiment = "positive"
-    elif polarity < -0.1:
-        sentiment = "negative"
-    else:
-        sentiment = "neutral"
-    
-    return {
-        'sentiment': sentiment,
-        'polarity': polarity,
-        'subjectivity': subjectivity,
-        'confidence': abs(polarity)
-    }
-
-# Example usage
-if __name__ == "__main__":
-    sample_text = "I love this new AI assistant! It's incredibly helpful."
-    result = analyze_sentiment(sample_text)
-    print(f"Sentiment: {result['sentiment']}")
-    print(f"Polarity: {result['polarity']:.2f}")`,
-      language: 'python',
-      confidence: 0.92,
-      lineNumbers: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40],
-      analysis: {
-        complexity: 'medium' as const,
-        issues: ['No input validation', 'Missing exception handling for TextBlob'],
-        suggestions: ['Add input sanitization', 'Implement caching for better performance', 'Add batch processing capability']
-      }
-    },
-    {
-      content: `public class AIVoiceProcessor {
-    private final SpeechRecognition speechRecognition;
-    private final TextToSpeech textToSpeech;
-    private final Logger logger;
-    
-    public AIVoiceProcessor(SpeechRecognition sr, TextToSpeech tts) {
-        this.speechRecognition = sr;
-        this.textToSpeech = tts;
-        this.logger = LoggerFactory.getLogger(AIVoiceProcessor.class);
-    }
-    
-    @Async
-    public CompletableFuture<String> processVoiceInput(AudioInputStream audioStream) {
-        return CompletableFuture.supplyAsync(() -> {
-            try {
-                logger.info("Processing voice input...");
-                
-                // Convert audio to text
-                String recognizedText = speechRecognition.recognize(audioStream);
-                
-                if (recognizedText == null || recognizedText.trim().isEmpty()) {
-                    logger.warn("No speech detected in audio stream");
-                    return null;
-                }
-                
-                // Process the recognized text
-                String processedText = processNaturalLanguage(recognizedText);
-                
-                logger.info("Voice processing completed successfully");
-                return processedText;
-                
-            } catch (Exception e) {
-                logger.error("Error processing voice input: " + e.getMessage(), e);
-                throw new VoiceProcessingException("Failed to process voice input", e);
-            }
-        });
-    }
-    
-    private String processNaturalLanguage(String text) {
-        // Implement NLP processing logic here
-        return text.toLowerCase().trim();
-    }
-}`,
-      language: 'java',
-      confidence: 0.88,
-      lineNumbers: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38],
-      analysis: {
-        complexity: 'high' as const,
-        issues: ['Basic NLP implementation', 'Missing configuration options'],
-        suggestions: ['Implement proper dependency injection', 'Add configuration for recognition parameters', 'Implement retry mechanism']
-      }
+        complexity: 'medium',
+        issues: ['Missing TypeScript types', 'No error handling UI'],
+        suggestions: ['Add proper types', 'Implement error boundary', 'Add loading skeleton']
+      },
+      timestamp: new Date()
     }
   ];
 
-  const simulateAdvancedOCR = useCallback(async () => {
-    if (!isSharing || !videoRef.current) return;
-
-    setIsAnalyzing(true);
-    setAnalysisProgress(0);
-
-    // Simulate OCR processing with progress
-    const progressSteps = [10, 25, 45, 70, 85, 100];
-    
-    for (let i = 0; i < progressSteps.length; i++) {
-      await new Promise(resolve => setTimeout(resolve, 300));
-      setAnalysisProgress(progressSteps[i]);
-    }
-
-    // Simulate code detection with varying confidence
-    if (Math.random() > 0.3) {
-      const detectedCode = mockCodeDatabase[Math.floor(Math.random() * mockCodeDatabase.length)];
-      
-      // Add some randomness to confidence
-      const adjustedCode = {
-        ...detectedCode,
-        confidence: Math.max(0.7, detectedCode.confidence - Math.random() * 0.2)
-      };
-      
-      setDetectedCodes(prev => {
-        const updated = [adjustedCode, ...prev.slice(0, 2)];
-        setActiveCode(adjustedCode);
-        return updated;
-      });
-    }
-
-    setIsAnalyzing(false);
-    setAnalysisProgress(0);
-  }, [isSharing]);
-
-  const updateScreenMetrics = useCallback(() => {
-    if (!videoRef.current) return;
-
-    fpsCounterRef.current++;
-    
-    const video = videoRef.current;
-    if (video.videoWidth && video.videoHeight) {
-      setScreenMetrics({
-        fps: fpsCounterRef.current,
-        resolution: `${video.videoWidth}x${video.videoHeight}`
-      });
-    }
-  }, []);
-
-  const captureScreenshot = useCallback(async (): Promise<string> => {
+  const captureFullScreen = useCallback(async (): Promise<string> => {
     if (!videoRef.current || !canvasRef.current) return '';
 
     const video = videoRef.current;
@@ -257,20 +122,18 @@ if __name__ == "__main__":
     if (!ctx || video.videoWidth === 0 || video.videoHeight === 0) return '';
 
     try {
-      // Set canvas dimensions to match video
       canvas.width = video.videoWidth;
       canvas.height = video.videoHeight;
 
-      // Draw current video frame to canvas
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
       ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-      // Convert to base64 image
-      const imageData = canvas.toDataURL('image/png');
+      const imageData = canvas.toDataURL('image/png', 1.0);
       setCurrentScreenshot(imageData);
       
       return imageData;
     } catch (error) {
-      console.error('Error capturing screenshot:', error);
+      console.error('Error capturing screen:', error);
       return '';
     }
   }, []);
@@ -282,59 +145,79 @@ if __name__ == "__main__":
     setAnalysisProgress(0);
 
     try {
-      // Capture current screen
-      const screenshot = await captureScreenshot();
+      const screenshot = await captureFullScreen();
       
       if (!screenshot) {
         setIsAnalyzing(false);
         return;
       }
 
-      // Simulate progressive analysis
-      const progressSteps = [15, 35, 55, 75, 90, 100];
+      const progressSteps = [20, 40, 60, 80, 100];
       
       for (let i = 0; i < progressSteps.length; i++) {
-        await new Promise(resolve => setTimeout(resolve, 400));
+        await new Promise(resolve => setTimeout(resolve, 300));
         setAnalysisProgress(progressSteps[i]);
       }
 
-      // Enhanced code detection simulation
-      if (Math.random() > 0.2) { // Higher chance of detection
-        const detectedCode = mockCodeDatabase[Math.floor(Math.random() * mockCodeDatabase.length)];
-        
-        // Add screen context to detected code
-        const enhancedCode = {
-          ...detectedCode,
+      if (Math.random() > 0.2) {
+        const detectedCode = {
+          ...mockCodeDatabase[Math.floor(Math.random() * mockCodeDatabase.length)],
+          id: Date.now().toString(),
           screenshot: screenshot,
           timestamp: new Date(),
-          confidence: Math.max(0.75, detectedCode.confidence - Math.random() * 0.15),
-          screenContext: {
-            resolution: `${videoRef.current?.videoWidth}x${videoRef.current?.videoHeight}`,
-            captureTime: new Date().toISOString()
-          }
+          confidence: Math.max(0.8, Math.random() * 0.2 + 0.8)
         };
         
         setDetectedCodes(prev => {
-          const updated = [enhancedCode, ...prev.slice(0, 4)]; // Keep last 5 detections
-          setActiveCode(enhancedCode);
+          const updated = [detectedCode, ...prev.slice(0, 4)];
           return updated;
         });
+        
+        setActiveCode(detectedCode);
       }
 
     } catch (error) {
       console.error('Error analyzing screen content:', error);
+      setError('Failed to analyze screen content');
     } finally {
       setIsAnalyzing(false);
       setAnalysisProgress(0);
     }
-  }, [isSharing, realTimeAnalysis, captureScreenshot]);
+  }, [isSharing, realTimeAnalysis, captureFullScreen]);
+
+  const updateScreenMetrics = useCallback(() => {
+    if (!videoRef.current) return;
+
+    const video = videoRef.current;
+    const currentTime = performance.now();
+    
+    frameCountRef.current++;
+    
+    if (lastTimeRef.current > 0) {
+      const deltaTime = currentTime - lastTimeRef.current;
+      if (deltaTime >= 1000) {
+        const fps = Math.round((frameCountRef.current * 1000) / deltaTime);
+        
+        setScreenMetrics({
+          resolution: `${video.videoWidth}x${video.videoHeight}`,
+          fps: fps || 30,
+          bandwidth: `${Math.round((video.videoWidth * video.videoHeight * (fps || 30) * 3) / 1024 / 1024 * 100) / 100}MB/s`
+        });
+        
+        frameCountRef.current = 0;
+        lastTimeRef.current = currentTime;
+      }
+    } else {
+      lastTimeRef.current = currentTime;
+    }
+  }, []);
 
   const startScreenShare = useCallback(async () => {
     try {
       setError('');
       
       if (!navigator.mediaDevices?.getDisplayMedia) {
-        throw new Error('Screen sharing not supported in this browser');
+        throw new Error('Screen sharing not supported in this browser. Please use Chrome, Firefox, or Edge.');
       }
 
       const mediaStream = await navigator.mediaDevices.getDisplayMedia({
@@ -343,58 +226,58 @@ if __name__ == "__main__":
           height: { ideal: 1080, max: 2160 },
           frameRate: { ideal: 30, max: 60 }
         },
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true
-        }
+        audio: true
       });
 
       setStream(mediaStream);
       setIsSharing(true);
       setRealTimeAnalysis(true);
+      frameCountRef.current = 0;
+      lastTimeRef.current = 0;
 
       if (videoRef.current) {
         videoRef.current.srcObject = mediaStream;
-        videoRef.current.onloadedmetadata = () => {
-          videoRef.current?.play().catch(console.error);
-          
-          // Start initial analysis after video loads
-          setTimeout(() => {
-            analyzeScreenContent();
-            // Set up continuous analysis every 10 seconds
-            intervalRef.current = setInterval(analyzeScreenContent, 10000);
-          }, 2000);
+        
+        const handleLoadedMetadata = () => {
+          if (videoRef.current) {
+            videoRef.current.play().then(() => {
+              // Start metrics monitoring
+              const metricsInterval = setInterval(updateScreenMetrics, 1000);
+              
+              // Start analysis after delay
+              setTimeout(() => {
+                analyzeScreenContent();
+                intervalRef.current = setInterval(analyzeScreenContent, 8000);
+              }, 2000);
 
-          // Start FPS monitoring
-          const fpsInterval = setInterval(() => {
-            updateScreenMetrics();
-            fpsCounterRef.current = 0;
-          }, 1000);
+              // Cleanup function
+              const cleanup = () => {
+                clearInterval(metricsInterval);
+                if (intervalRef.current) {
+                  clearInterval(intervalRef.current);
+                  intervalRef.current = null;
+                }
+              };
 
-          // Cleanup FPS monitoring when stream ends
-          mediaStream.getVideoTracks()[0].onended = () => {
-            clearInterval(fpsInterval);
-          };
-        };
-      }
-
-      // Handle stream end
-      const videoTrack = mediaStream.getVideoTracks()[0];
-      if (videoTrack) {
-        videoTrack.onended = () => {
-          setIsSharing(false);
-          setStream(null);
-          setDetectedCodes([]);
-          setActiveCode(null);
-          setIsAnalyzing(false);
-          setAnalysisProgress(0);
-          setScreenMetrics({ fps: 0, resolution: '' });
-          
-          if (intervalRef.current) {
-            clearInterval(intervalRef.current);
-            intervalRef.current = null;
+              mediaStream.getVideoTracks()[0].onended = () => {
+                cleanup();
+                setIsSharing(false);
+                setStream(null);
+                setDetectedCodes([]);
+                setActiveCode(null);
+                setIsAnalyzing(false);
+                setCurrentScreenshot('');
+                setAnalysisProgress(0);
+              };
+            }).catch(console.error);
           }
+        };
+
+        videoRef.current.onloadedmetadata = handleLoadedMetadata;
+        
+        videoRef.current.onerror = (error) => {
+          console.error('Video error:', error);
+          setError('Error loading video stream');
         };
       }
 
@@ -402,10 +285,10 @@ if __name__ == "__main__":
       console.error('Screen share error:', error);
       
       if (error instanceof Error) {
-        if (error.message.includes('Permission denied')) {
+        if (error.message.includes('Permission denied') || error.name === 'NotAllowedError') {
           setError('Screen sharing permission denied. Please allow screen sharing and try again.');
-        } else if (error.message.includes('not supported')) {
-          setError('Screen sharing is not supported in this browser. Please use Chrome, Firefox, or Edge.');
+        } else if (error.name === 'AbortError') {
+          setError('Screen sharing was cancelled.');
         } else {
           setError('Failed to start screen sharing. Please try again.');
         }
@@ -417,18 +300,20 @@ if __name__ == "__main__":
     if (stream) {
       stream.getTracks().forEach(track => track.stop());
       setStream(null);
-      setIsSharing(false);
-      setDetectedCodes([]);
-      setActiveCode(null);
-      setIsAnalyzing(false);
-      setAnalysisProgress(0);
-      setError('');
-      setScreenMetrics({ fps: 0, resolution: '' });
-      
-      if (intervalRef.current) {
-        clearInterval(intervalRef.current);
-        intervalRef.current = null;
-      }
+    }
+    
+    setIsSharing(false);
+    setDetectedCodes([]);
+    setActiveCode(null);
+    setIsAnalyzing(false);
+    setCurrentScreenshot('');
+    setAnalysisProgress(0);
+    setError('');
+    setRealTimeAnalysis(false);
+    
+    if (intervalRef.current) {
+      clearInterval(intervalRef.current);
+      intervalRef.current = null;
     }
   }, [stream]);
 
@@ -437,10 +322,10 @@ if __name__ == "__main__":
   }, []);
 
   const analyzeCodeManually = useCallback(() => {
-    if (activeCode) {
-      simulateAdvancedOCR();
+    if (isSharing) {
+      analyzeScreenContent();
     }
-  }, [activeCode, simulateAdvancedOCR]);
+  }, [isSharing, analyzeScreenContent]);
 
   const getCurrentScreenData = useCallback(() => {
     return {
@@ -472,16 +357,16 @@ if __name__ == "__main__":
     screenMetrics,
     detectedCodes,
     activeCode,
+    currentScreenshot,
+    realTimeAnalysis,
     startScreenShare,
     stopScreenShare,
     selectCode,
     analyzeCodeManually,
+    getCurrentScreenData,
+    captureFullScreen,
     videoRef,
     canvasRef,
-    getCurrentScreenData,
-    captureScreenshot,
-    currentScreenshot,
-    realTimeAnalysis,
     setRealTimeAnalysis
   };
 };
